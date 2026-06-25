@@ -1,41 +1,45 @@
-import makeWASocket, {
-  useMultiFileAuthState,
-  DisconnectReason
-} from "@whiskeysockets/baileys";
+import pkg from '@whiskeysockets/baileys'
 
-import pino from "pino";
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion
+} = pkg
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState("./session");
+  const { state, saveCreds } = await useMultiFileAuthState('./session')
+  const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
+    version,
     auth: state,
-    logger: pino({ level: "silent" })
-  });
+    printQRInTerminal: true
+  })
 
-  sock.ev.on("creds.update", saveCreds);
+  sock.ev.on('creds.update', saveCreds)
 
-  let codeRequested = false;
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0]
+    if (!msg.message) return
 
-  sock.ev.on("connection.update", async (update) => {
-    const { connection, lastDisconnect } = update;
+    const from = msg.key.remoteJid
+    const text =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      ''
 
-    try {
-      if (!sock.authState.creds.registered && !codeRequested) {
-        codeRequested = true;
-
-        const phoneNumber = "212XXXXXXXXX"; // حط رقمك هنا
-
-        const code = await sock.requestPairingCode(phoneNumber);
-
-        console.log("━━━━━━━━━━━━━━━━━━");
-        console.log(" Pairing Code:");
-        console.log(code);
-        console.log("━━━━━━━━━━━━━━━━━━");
-      }
-    } catch (err) {
-      console.error("❌ خطأ Pairing Code:", err);
+    if (text === '.بوت') {
+      await sock.sendMessage(from, {
+        text: '✅ البوت شغال'
+      })
     }
+  })
 
-    if (connection === "open") {
-      console.log("✅ تم الاتصال بنج
+  sock.ev.on('connection.update', ({ connection }) => {
+    if (connection === 'open') {
+      console.log('✅ تم الاتصال')
+    }
+  })
+}
+
+startBot()
