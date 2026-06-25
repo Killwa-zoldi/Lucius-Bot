@@ -1,72 +1,261 @@
-import makeWASocket, {
-    useMultiFileAuthState,
-    fetchLatestBaileysVersion,
-    DisconnectReason
-} from '@whiskeysockets/baileys'
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys")
 
-async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('./session')
+const P = require("pino")
 
-    const { version } = await fetchLatestBaileysVersion()
+const qrcode = require("qrcode-terminal")
 
-    const sock = makeWASocket({
-        version,
-        auth: state
-    })
+const fs = require("fs")
 
-    sock.ev.on('creds.update', saveCreds)
+const path = require("path")
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect } = update
+const chalk = require("chalk")
 
-        if (connection === 'open') {
-            console.log('✅ تم الاتصال بنجاح')
-        }
+const config = require("./config")
 
-        if (connection === 'close') {
-            const shouldReconnect =
-                lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
+const { loadCommands } = require("./commandLoader")
 
-            console.log('❌ انقطع الاتصال')
+const commands = loadCommands("./commands")
 
-            if (shouldReconnect) {
-                startBot()
-            }
-        }
-    })
+const dataDir = path.join(__dirname, "data")
 
-    // طلب Pairing Code فقط إذا لم توجد جلسة
-    setTimeout(async () => {
-        try {
-            if (!state.creds.registered) {
-                const code = await sock.requestPairingCode('212657394310')
-                console.log('\n Pairing Code:')
-                console.log(code)
-                console.log('')
-            }
-        } catch (err) {
-            console.log('❌ خطأ Pairing Code:', err.message)
-        }
-    }, 5000)
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir)
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
-        const msg = messages[0]
+const jsonData = {}
 
-        if (!msg.message) return
+fs.readdirSync(dataDir).forEach(file => {
 
-        const from = msg.key.remoteJid
+  if (!file.endsWith(".json")) return
 
-        const text =
-            msg.message.conversation ||
-            msg.message.extendedTextMessage?.text ||
-            ''
+  const name = file.replace(".json", "")
 
-        if (text === '.بوت') {
-            await sock.sendMessage(from, {
-                text: '✅ البوت شغال'
-            })
-        }
-    })
+  try {
+
+    jsonData[name] = JSON.parse(fs.readFileSync(path.join(dataDir, file), "utf8"))
+
+  } catch {
+
+    jsonData[name] = {}
+
+  }
+
+})
+
+if (!jsonData.bank) fs.writeFileSync(path.join(dataDir, "bank.json"), JSON.stringify(jsonData.bank = {}, null, 2))
+
+if (!jsonData.replies) fs.writeFileSync(path.join(dataDir, "replies.json"), JSON.stringify(jsonData.replies = {}, null, 2))
+
+if (!jsonData.bot) fs.writeFileSync(path.join(dataDir, "bot.json"), JSON.stringify(jsonData.bot = { enabled: true }, null, 2))
+
+function saveJSON(name) {
+
+  if (!jsonData[name]) return
+
+  fs.writeFileSync(path.join(dataDir, `${name}.json`), JSON.stringify(jsonData[name], null, 2))
+
 }
 
-startBot()
+let gameState = {}
+
+async function startMegumi() {
+
+  const { state, saveCreds } = await useMultiFileAuthState("./auth")
+
+  const sock = makeWASocket({
+
+    logger: P({ level: "silent" }),
+
+    auth: state,
+
+    printQRInTerminal: false,
+
+    generateHighQualityLinkPreview: true
+
+  })
+
+  const { wrapSendMessage } = require("./simple")
+
+  wrapSendMessage(sock)
+
+  
+
+  console.log(chalk.cyanBright(`
+
+███╗   ███╗███████╗ ██████╗ ██╗   ██╗███╗   ███╗██╗
+
+████╗ ████║██╔════╝██╔═══██╗██║   ██║████╗ ████║██║
+
+██╔████╔██║█████╗  ██║ ██══╝██║   ██║██╔████╔██║██║
+
+██║╚██╔╝██║██╔══╝  ██║   ██║██║   ██║██║╚██╔╝██║██║
+
+██║ ╚═╝ ██║███████╗╚██████╔╝╚██████╔╝██║ ╚═╝ ██║██║
+
+╚═╝     ╚═╝╚══════╝ ╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚═╝
+
+`))
+
+  sock.ev.on("connection.update", update => {
+
+    const { qr, connection, lastDisconnect } = update
+
+    if (qr) qrcode.generate(qr, { small: true })
+
+    if (connection === "open") console.log(chalk.greenBright("✅ Bot connected successfully"))
+
+    if (connection === "close") {
+
+      const reason = lastDisconnect?.error?.output?.statusCode
+
+      if (reason !== DisconnectReason.loggedOut) startMegumi()
+
+    }
+
+  })
+
+  sock.ev.on("creds.update", saveCreds)
+
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+
+    if (type !== "notify") return
+
+    const m = messages[0]
+
+    if (!m.message) return
+
+    const from = m.key.remoteJid
+
+    const sender = m.key.participant || from
+
+    const isBotMessage = m.key.fromMe
+
+    const body = m.message.conversation || m.message.extendedTextMessage?.text || ""
+
+    const botStatus = jsonData.bot?.enabled ?? true
+
+    if (!from.endsWith("@g.us") && !isBotMessage) {
+
+      await sock.sendMessage(from, {
+
+  image: { url: "https://i.ibb.co/MDR4GFgf/8613bf9a4a587e4455e3bfcffea1ef32.webp" },
+
+  caption: `*╔════════⊹⊱❖⊰⊹════════╗*
+
+*┃ ⚠️ تحذير هام ⚠️ ┃*
+
+*╠════════⊹⊱❖⊰⊹════════╣*
+
+*┃ 🙅‍♂️ لا يمكنني استقبال رسائل خاصة لتخفيف الضغط على البوت*
+
+*┃ 🚫 تم حظرك تلقائياً من التواصل معي*
+
+*┃ 💡 يرجى استخدام البوت فقط داخل المجموعات*
+
+*╚════════⊹⊱❖⊰⊹════════╝*`
+
+})
+
+      await sock.updateBlockStatus(sender, "block")
+
+      return
+
+    }
+
+    if (body.startsWith(config.PREFIX)) {
+
+      const args = body.slice(config.PREFIX.length).trim().split(/ +/)
+
+      const cmdName = args.shift()?.toLowerCase()
+
+      if (!botStatus && !config.DEVELOPERS.includes(sender)) return
+
+      if (commands[cmdName]) {
+
+        try {
+
+          await commands[cmdName].run(sock, m, args, { gameState, bank: jsonData.bank }, jsonData, saveJSON)
+
+        } catch {
+
+          if (botStatus || config.DEVELOPERS.includes(sender)) {
+
+            await sock.sendMessage(from, { text: `⚠️ خطأ في تنفيذ الأمر ${config.PREFIX}${cmdName}` }, { quoted: m })
+
+          }
+
+        }
+
+      } else {
+
+        if (!botStatus && !config.DEVELOPERS.includes(sender)) return
+
+        const text = `╭─〔 ⚠️ خطأ 〕─╮
+
+│ لقد بحثت عن أمر \`${config.PREFIX}${cmdName}\` ولم أجده
+
+╰───────────────╯`
+
+        await sock.sendMessage(from, { text }, { quoted: m })
+
+      }
+
+      return
+
+    }
+
+    if (!isBotMessage) {
+
+      for (const [q, a] of Object.entries(jsonData.replies)) {
+
+        if (body.toLowerCase() === q.toLowerCase()) {
+
+          if (botStatus || config.DEVELOPERS.includes(sender)) {
+
+            await sock.sendMessage(from, { text: a }, { quoted: m })
+
+          }
+
+          break
+
+        }
+
+      }
+
+      for (const cmd of Object.values(commands)) {
+
+        if (typeof cmd.reactMessage === "function") {
+
+          if (botStatus || config.DEVELOPERS.includes(sender)) {
+
+            try {
+
+              await cmd.reactMessage(sock, m, gameState, jsonData)
+
+            } catch {}
+
+          }
+
+        }
+
+      }
+
+    }
+
+  })
+
+  for (const cmd of Object.values(commands)) {
+
+    if (typeof cmd.init === "function") {
+
+      try {
+
+        await cmd.init(sock, dataDir, jsonData, saveJSON)
+
+      } catch {}
+
+    }
+
+  }
+
+}
+
+startMegumi()
