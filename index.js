@@ -4,7 +4,6 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 
 import pino from "pino";
-import qrcodeTerminal from "qrcode-terminal";
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("./session");
@@ -16,42 +15,27 @@ async function startBot() {
 
   sock.ev.on("creds.update", saveCreds);
 
-  // Pairing Code
-  if (!sock.authState.creds.registered) {
-    const phoneNumber = "212XXXXXXXXX"; // حط رقمك هنا
-
-    const code = await sock.requestPairingCode(phoneNumber);
-
-    console.log("━━━━━━━━━━━━━━━━━━━━");
-    console.log(" Pairing Code:");
-    console.log(code);
-    console.log("━━━━━━━━━━━━━━━━━━━━");
-  }
+  let codeRequested = false;
 
   sock.ev.on("connection.update", async (update) => {
-    const { connection, lastDisconnect, qr } = update;
+    const { connection, lastDisconnect } = update;
 
-    if (qr) {
-      console.log(" QR CODE:");
-      qrcodeTerminal.generate(qr, { small: true });
+    try {
+      if (!sock.authState.creds.registered && !codeRequested) {
+        codeRequested = true;
+
+        const phoneNumber = "212XXXXXXXXX"; // حط رقمك هنا
+
+        const code = await sock.requestPairingCode(phoneNumber);
+
+        console.log("━━━━━━━━━━━━━━━━━━");
+        console.log(" Pairing Code:");
+        console.log(code);
+        console.log("━━━━━━━━━━━━━━━━━━");
+      }
+    } catch (err) {
+      console.error("❌ خطأ Pairing Code:", err);
     }
 
     if (connection === "open") {
-      console.log("✅ تم الاتصال بنجاح");
-    }
-
-    if (connection === "close") {
-      const shouldReconnect =
-        lastDisconnect?.error?.output?.statusCode !==
-        DisconnectReason.loggedOut;
-
-      console.log("⚠️ انقطع الاتصال");
-
-      if (shouldReconnect) {
-        startBot();
-      }
-    }
-  });
-}
-
-startBot();
+      console.log("✅ تم الاتصال بنج
