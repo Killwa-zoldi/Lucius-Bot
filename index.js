@@ -1,13 +1,11 @@
-import pkg from '@whiskeysockets/baileys'
-
-const {
-  default: makeWASocket,
+import makeWASocket, {
   useMultiFileAuthState,
   fetchLatestBaileysVersion
-} = pkg
+} from '@whiskeysockets/baileys'
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('./session')
+
   const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
@@ -23,6 +21,7 @@ async function startBot() {
     if (!msg.message) return
 
     const from = msg.key.remoteJid
+
     const text =
       msg.message.conversation ||
       msg.message.extendedTextMessage?.text ||
@@ -32,12 +31,6 @@ async function startBot() {
       await sock.sendMessage(from, {
         text: '✅ البوت شغال'
       })
-    }
-  })
-
-  sock.ev.on('connection.update', ({ connection }) => {
-    if (connection === 'open') {
-      console.log('✅ تم الاتصال')
     }
   })
 }
