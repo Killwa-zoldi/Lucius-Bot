@@ -1,56 +1,60 @@
 import makeWASocket, {
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion
+    useMultiFileAuthState,
+    fetchLatestBaileysVersion,
+    DisconnectReason
 } from '@whiskeysockets/baileys'
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState('./session')
+    const { state, saveCreds } = await useMultiFileAuthState('session')
 
-  const { version } = await fetchLatestBaileysVersion()
+    const { version } = await fetchLatestBaileysVersion()
 
-  const sock = makeWASocket({
-    version,
-    auth: state
-  })
+    const sock = makeWASocket({
+        version,
+        auth: state
+    })
 
-  sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('creds.update', saveCreds)
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, qr } = update
+    sock.ev.on('connection.update', async ({ connection, lastDisconnect }) => {
 
-    if ((connection === 'connecting' || qr) && !sock.authState.creds.registered) {
+        if (connection === 'open') {
+            console.log('✅ تم الاتصال')
+        }
 
-      const phoneNumber = '212657394310' // رقمك بدون +
+        if (connection === 'close') {
+            const shouldReconnect =
+                lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
 
-      const code = await sock.requestPairingCode(phoneNumber)
+            if (shouldReconnect) {
+                startBot()
+            }
+        }
+    })
 
-      console.log('========================')
-      console.log('PAIRING CODE:', code)
-      console.log('========================')
+    if (!state.creds.registered) {
+        const code = await sock.requestPairingCode('212657394310')
+                                                    
+        console.log(`PAIRING CODE: ${code}`)
     }
 
-    if (connection === 'open') {
-      console.log('✅ تم الاتصال بنجاح')
-    }
-  })
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0]
+        if (!msg.message) return
 
-  sock.ev.on('messages.upsert', async ({ messages }) => {
-    const msg = messages[0]
-    if (!msg.message) return
+        const from = msg.key.remoteJid
 
-    const from = msg.key.remoteJid
+        const text =
+            msg.message.conversation ||
+            msg.message.extendedTextMessage?.text ||
+            ''
 
-    const text =
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text ||
-      ''
-
-    if (text === '.بوت') {
-      await sock.sendMessage(from, {
-        text: '✅ البوت شغال'
-      })
-    }
-  })
+        if (text === '.بوت') {
+            await sock.sendMessage(from, {
+                text: '✅ البوت شغال'
+            })
+        }
+    })
 }
 
 startBot()
